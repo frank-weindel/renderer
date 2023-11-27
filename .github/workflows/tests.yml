@@ -40,4 +40,4 @@ jobs:
         run: cd visual-regression && pnpm exec playwright install
 
       - name: Run tests
-        run: pnpm run test:visual --ci
+        run: pnpm run test:visual --ci --color
