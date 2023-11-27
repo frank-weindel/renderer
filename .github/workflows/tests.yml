@@ -43,4 +43,6 @@ jobs:
         run: cd visual-regression && pnpm exec playwright install chromium
 
       - name: Run Visual Regression Tests
-        run: pnpm run test:visual --ci --color
+        run: pnpm run test:visual --color
+        env:
+          RUNTIME_ENV: ci

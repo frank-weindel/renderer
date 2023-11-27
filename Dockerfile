@@ -15,4 +15,4 @@ COPY package.json package.json
 RUN pnpm exec ls
 
 # Set the entry point command
-CMD ["/bin/bash", "-c", "echo 'Must run with Visual Regression Test Runner: `pnpm run test:visual --docker`'"]
+CMD ["/bin/bash", "-c", "echo 'Must run with Visual Regression Test Runner: `pnpm run test:visual --ci`'"]

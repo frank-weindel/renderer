@@ -6,16 +6,16 @@
   "main": "index.js",
   "private": true,
   "scripts": {
-    "start": "concurrently -c \"auto\" \"pnpm:watch-renderer\" \"pnpm:dev\"",
-    "start:prod": "concurrently -c \"auto\" \"pnpm:watch-renderer\" \"pnpm:watch\" \"sleep 5 && pnpm preview\"",
+    "start": "concurrently -c \"auto\" \"pnpm:watch:renderer\" \"pnpm:dev\"",
+    "start:prod": "concurrently -c \"auto\" \"pnpm:watch:renderer\" \"pnpm:watch\" \"sleep 5 && pnpm preview\"",
     "dev": "vite --open",
     "build": "vite build",
     "watch": "vite build --watch",
-    "watch-all": "concurrently -c \"auto\" \"pnpm:watch-renderer\" \"pnpm:watch\"",
+    "watch-all": "concurrently -c \"auto\" \"pnpm:watch:renderer\" \"pnpm:watch\"",
     "preview": "vite preview --host --open",
     "preview:automation": "vite preview",
-    "build-renderer": "cd .. && pnpm build",
-    "watch-renderer": "cd .. && pnpm watch"
+    "build:renderer": "cd .. && pnpm build",
+    "watch:renderer": "cd .. && pnpm watch"
   },
   "author": "Frank Weindel",
   "license": "Apache-2.0",

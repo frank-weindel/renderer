@@ -14,6 +14,7 @@
     "start": "cd examples && pnpm start",
     "start:prod": "cd examples && pnpm start:prod",
     "build": "tsc --build",
+    "build:docker": "docker build -t visual-regression .",
     "watch": "tsc --build --watch",
     "test": "vitest",
     "test:visual": "cd visual-regression && pnpm test:visual",

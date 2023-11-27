@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-non-null-assertion */
 /*
  * If not stated otherwise in this file or this component's LICENSE file the
  * following copyright and licenses apply:
@@ -37,7 +38,7 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import { execa, $ } from 'execa';
 
-const snapshotDir = 'certified-snapshots';
+const certifiedSnapshotDir = 'certified-snapshots';
 const failedResultsDir = 'failed-results';
 
 const browsers = { chromium };
@@ -45,6 +46,21 @@ let snapshotsTested = 0;
 let snapshotsPassed = 0;
 let snapshotsFailed = 0;
 let snapshotsSkipped = 0;
+
+/**
+ * The runtime environment (local, ci, etc.)
+ */
+const runtimeEnv = (process.env.RUNTIME_ENV || 'local') as 'ci' | 'local';
+
+// Guard against invalid runtime environment
+if (!['ci', 'local'].includes(runtimeEnv)) {
+  console.error(
+    chalk.red.bold(
+      `Invalid RUNTIME_ENV '${runtimeEnv}'. Must be 'ci' or 'local'`,
+    ),
+  );
+  process.exit(1);
+}
 
 const argv = yargs(hideBin(process.argv))
   .options({
@@ -78,72 +94,89 @@ const argv = yargs(hideBin(process.argv))
       default: 50535,
       description: 'Port to serve examples on',
     },
-    docker: {
-      type: 'boolean',
-      alias: 'd',
-      default: false,
-      description: 'Run in docker container',
-    },
     ci: {
       type: 'boolean',
       alias: 'i',
       default: false,
-      description: 'Run in CI mode (which should be run in a Docker container)',
+      description: 'Run in docker container with `ci` runtime environment',
     },
   })
   .parseSync();
 
+/**
+ * Main function that runs the tests in either docker ci mode or compare/capture mode
+ */
 (async () => {
-  if (argv.docker) {
-    // Relay the command line arguments to the docker container
-    const commandLineStr = [
-      argv.capture ? '--capture' : '',
-      argv.overwrite ? '--overwrite' : '',
-      argv.verbose ? '--verbose' : '',
-      argv.skipBuild ? '--skipBuild' : '',
-      argv.port ? `--port ${argv.port}` : '',
-      '--ci', // Always run in CI mode in docker container
-    ].join(' ');
-
-    // Get the directory of the current file
-    const __dirname = path.dirname(new URL(import.meta.url).pathname);
-    const rootDir = path.resolve(__dirname, '..', '..', '..');
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const childProc = $({ stdio: 'inherit' })`docker run --network host \
-      -v ${rootDir}:/work/ \
-      -v /work/node_modules \
-      -v /work/.pnpm-store \
-      -v /work/examples/node_modules \
-      -v /work/visual-regression/node_modules \
-      -w /work/ -it visual-regression:latest \
-      /bin/bash -c ${`pnpm install && pnpm test:visual ${commandLineStr}`}
-    `;
-    await childProc;
-  } else {
-    await compareCaptureMode();
+  let exitCode = 1;
+  try {
+    if (argv.ci) {
+      exitCode = await dockerCiMode();
+    } else {
+      exitCode = await compareCaptureMode();
+    }
+  } finally {
+    process.exitCode = exitCode;
   }
 })().catch((err) => console.error(err));
 
-async function compareCaptureMode() {
+/**
+ * Re-launches this script in a docker container with the `ci` runtime environment
+ *
+ * @returns Exit code
+ */
+async function dockerCiMode(): Promise<number> {
+  // Relay the command line arguments to the docker container
+  const commandLineStr = [
+    argv.capture ? '--capture' : '',
+    argv.overwrite ? '--overwrite' : '',
+    argv.verbose ? '--verbose' : '',
+    argv.skipBuild ? '--skipBuild' : '',
+    argv.port ? `--port ${argv.port}` : '',
+  ].join(' ');
+
+  // Get the directory of the current file
+  const __dirname = path.dirname(new URL(import.meta.url).pathname);
+  const rootDir = path.resolve(__dirname, '..', '..', '..');
+
+  const childProc = $({ stdio: 'inherit' })`docker run --network host \
+    -v ${rootDir}:/work/ \
+    -v /work/node_modules \
+    -v /work/.pnpm-store \
+    -v /work/examples/node_modules \
+    -v /work/visual-regression/node_modules \
+    -w /work/ -it visual-regression:latest \
+    /bin/bash -c ${`pnpm install && RUNTIME_ENV=ci pnpm test:visual ${commandLineStr}`}
+  `;
+  await childProc;
+  return childProc.exitCode ?? 1;
+}
+
+/**
+ * The main function that builds the renderer and examples, serves the examples,
+ * and runs the tests in capture or compare mode.
+ *
+ * @returns Exit code
+ */
+async function compareCaptureMode(): Promise<number> {
   const stdioOption = argv.verbose ? 'inherit' : 'ignore';
 
   if (!argv.skipBuild) {
     // 1. Build Renderer
     console.log(chalk.magentaBright.bold(`Building Renderer...`));
-    const rendererBuildRes = await execa('pnpm', ['build-renderer'], {
+    const rendererBuildRes = await execa('pnpm', ['build:renderer'], {
       stdio: stdioOption,
     });
     if (rendererBuildRes.exitCode !== 0) {
       console.error(chalk.red.bold('Build failed!'));
-      process.exit(1);
+      return 1;
     }
     console.log(chalk.magentaBright.bold(`Building Examples...`));
-    const exampleBuildRes = await execa('pnpm', ['build-examples'], {
+    const exampleBuildRes = await execa('pnpm', ['build:examples'], {
       stdio: stdioOption,
     });
     if (exampleBuildRes.exitCode !== 0) {
       console.error(chalk.red.bold('Build failed!'));
-      process.exit(1);
+      return 1;
     }
   }
   console.log(
@@ -158,6 +191,7 @@ async function compareCaptureMode() {
     cleanup: false,
   })`pnpm serve-examples --port ${argv.port}`;
 
+  let exitCode = 1;
   try {
     const waitPortRes = await $({
       stdio: stdioOption,
@@ -166,22 +200,27 @@ async function compareCaptureMode() {
 
     if (waitPortRes.exitCode !== 0) {
       console.error(chalk.red.bold('Failed to start server!'));
-      process.exit(1);
+      return 1;
     }
 
     // Run the tests
-    process.exitCode = await runTest('chromium');
+    exitCode = await runTest('chromium');
   } finally {
     // Kill the serve-examples process
     serveExamplesChildProc.kill();
   }
+  return exitCode;
 }
 
+/**
+ * Run the tests in capture or compare mode depending on the `argv.capture` flag
+ * for a specific browser type.
+ */
 async function runTest(browserType: 'chromium') {
   const paramString = Object.entries({
     browser: browserType,
     overwrite: argv.overwrite,
-    ci: argv.ci,
+    RUNTIME_ENV: runtimeEnv,
   }).reduce((acc, [key, value]) => {
     return `${acc ? `${acc}, ` : ''}${`${key}: ${chalk.white(value)}`}`;
   }, '');
@@ -192,35 +231,54 @@ async function runTest(browserType: 'chromium') {
       } Visual Regression Tests (${paramString})...`,
     ),
   );
-  const browser = await browsers[browserType].launch(); // Or 'firefox' or 'webkit'.
 
-  const page = await browser.newPage();
+  const snapshotSubDirName = `${browserType}-${runtimeEnv}`;
 
-  if (argv.verbose) {
-    page.on('console', (msg) => console.log(`console: ${msg.text()}`));
-  }
-
-  await page.goto(`http://localhost:${argv.port}/?automation=true`);
-
-  const testCounters: Record<string, number> = {};
+  const snapshotSubDir = path.join(certifiedSnapshotDir, snapshotSubDirName);
 
   if (!argv.capture) {
+    // If compare/run mode...
+    // Make sure the snapshot directory exists. If not, error out.
+    if (!fs.existsSync(snapshotSubDir)) {
+      console.error(
+        chalk.red.bold(
+          `Snapshot directory '${snapshotSubDir}' does not exist! Did you forget to run in --capture mode first?`,
+        ),
+      );
+      return 1;
+    }
+
+    // Ensure the failedResult directory exists
     await fs.ensureDir(failedResultsDir);
     // Remove all files in the failedResultPath directory
     await fs.emptyDir(failedResultsDir);
   }
 
+  // Launch browser and create page
+  const browser = await browsers[browserType].launch();
+
+  const page = await browser.newPage();
+
+  // If verbose, log out console messages from the browser
+  if (argv.verbose) {
+    page.on('console', (msg) => console.log(`console: ${msg.text()}`));
+  }
+
+  // Go to the examples page
+  await page.goto(`http://localhost:${argv.port}/?automation=true`);
+
+  /**
+   * Keeps track of the latest snapshot index for each test
+   */
+  const testCounters: Record<string, number> = {};
+
+  // Expose the `snapshot()` function to the browser
   await page.exposeFunction('snapshot', async (test: string) => {
     snapshotsTested++;
-    const snapshotSubDirectory = argv.ci ? `${browserType}-ci` : browserType;
     const snapshotIndex = (testCounters[test] = (testCounters[test] || 0) + 1);
     const makeFilename = (postfix?: string) =>
       `${test}-${snapshotIndex}${postfix ? `-${postfix}` : ''}.png`;
-    const snapshotPath = path.join(
-      snapshotDir,
-      snapshotSubDirectory,
-      makeFilename(),
-    );
+    const snapshotPath = path.join(snapshotSubDir, makeFilename());
     if (argv.capture) {
       process.stdout.write(
         chalk.gray(
@@ -260,15 +318,15 @@ async function runTest(browserType: 'chromium') {
               path.join(
                 './',
                 failedResultsDir,
-                `${snapshotSubDirectory}-${makeFilename('diff')}`,
+                `${snapshotSubDirName}-${makeFilename('diff')}`,
               ),
-              result.resultImageBuffer,
+              result.diffImageBuffer,
             ),
             fs.writeFile(
               path.join(
                 './',
                 failedResultsDir,
-                `${snapshotSubDirectory}-${makeFilename('actual')}`,
+                `${snapshotSubDirName}-${makeFilename('actual')}`,
               ),
               actualPng,
             ),
@@ -276,7 +334,7 @@ async function runTest(browserType: 'chromium') {
               path.join(
                 './',
                 failedResultsDir,
-                `${snapshotSubDirectory}-${makeFilename('expected')}`,
+                `${snapshotSubDirName}-${makeFilename('expected')}`,
               ),
               expectedPng,
             ),
@@ -289,11 +347,19 @@ async function runTest(browserType: 'chromium') {
     }
   });
 
+  /**
+   * Resolve function for the donePromise below
+   */
   let resolveDonePromise: (exitCode: number) => void;
-  const donePromise = new Promise<number>((resolve, reject) => {
+  /**
+   * Promise that resolves when all tests are done
+   */
+  const donePromise = new Promise<number>((resolve) => {
     resolveDonePromise = resolve;
   });
 
+  // Expose the `doneTests()` function to the browser
+  // which will close the browser, calculate/print results and resolve the donePromise
   await page.exposeFunction('doneTests', async () => {
     await browser.close();
 
@@ -372,13 +438,20 @@ async function runTest(browserType: 'chromium') {
   return donePromise;
 }
 
+/**
+ * Compare two image buffers and return if they match and a diff image buffer
+ *
+ * @param actualImage
+ * @param expectedImage
+ * @returns
+ */
 function compareBuffers(
   actualImage: upng.Image,
   expectedImage: upng.Image,
-): { doesMatch: boolean; resultImageBuffer: Buffer } {
+): { doesMatch: boolean; diffImageBuffer: Buffer } {
   const actualData = new Uint8ClampedArray(actualImage.data);
   const expectedData = new Uint8ClampedArray(expectedImage.data);
-  const resultData = new Uint8ClampedArray(expectedData.byteLength);
+  const diffData = new Uint8ClampedArray(expectedData.byteLength);
 
   // Get the N-dimensional euclidean distance between the two images regardless of channel not using colorDistance
   const maxDistance = Math.sqrt(actualData.length * 255 * 255);
@@ -386,12 +459,12 @@ function compareBuffers(
   const distance = Math.sqrt(
     actualData.reduce((acc, cur, i) => {
       if (i % 4 === 3) {
-        resultData[i] = 255;
+        diffData[i] = 255;
       } else {
-        resultData[i] = Math.abs(cur - expectedData[i]!);
+        diffData[i] = Math.abs(cur - expectedData[i]!);
       }
-      if (resultData[i]! >= 5) {
-        resultData[i] = 255;
+      if (diffData[i]! >= 5) {
+        diffData[i] = 255;
       }
       return acc + Math.pow(cur - expectedData[i]!, 2);
     }, 0),
@@ -399,8 +472,8 @@ function compareBuffers(
 
   const normalizedDistance = distance / maxDistance;
 
-  const resultImage = upng.encode(
-    [resultData.buffer],
+  const diffImage = upng.encode(
+    [diffData.buffer],
     expectedImage.width,
     expectedImage.height,
     0,
@@ -408,6 +481,6 @@ function compareBuffers(
 
   return {
     doesMatch: normalizedDistance < 0.0005,
-    resultImageBuffer: Buffer.from(resultImage),
+    diffImageBuffer: Buffer.from(diffImage),
   };
 }
