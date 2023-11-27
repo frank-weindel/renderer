@@ -78,10 +78,43 @@ const argv = yargs(hideBin(process.argv))
       default: 50535,
       description: 'Port to serve examples on',
     },
+    docker: {
+      type: 'boolean',
+      alias: 'd',
+      default: false,
+      description: 'Run in docker container',
+    },
+    ci: {
+      type: 'boolean',
+      alias: 'i',
+      default: false,
+      description: 'Run in CI mode (which should be run in a Docker container)',
+    },
   })
   .parseSync();
 
 (async () => {
+  if (argv.docker) {
+    // Get the directory of the current file
+    const __dirname = path.dirname(new URL(import.meta.url).pathname);
+    const rootDir = path.resolve(__dirname, '..', '..', '..');
+    console.log('rootDir', rootDir);
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const childProc = $({ stdio: 'inherit' })`docker run --network host \
+      -v ${rootDir}:/work/ \
+      -v /work/node_modules \
+      -v /work/.pnpm-store \
+      -v /work/examples/node_modules \
+      -v /work/visual-regression/node_modules \
+      -w /work/ -it visual-regression:latest \
+    `;
+    await childProc;
+  } else {
+    await compareCaptureMode();
+  }
+})().catch((err) => console.error(err));
+
+async function compareCaptureMode() {
   const stdioOption = argv.verbose ? 'inherit' : 'ignore';
 
   if (!argv.skipBuild) {
@@ -132,20 +165,40 @@ const argv = yargs(hideBin(process.argv))
     // Kill the serve-examples process
     serveExamplesChildProc.kill();
   }
-})().catch((err) => console.error(err));
+}
 
 async function runTest(browserType: 'chromium') {
+  const paramString = Object.entries({
+    browser: browserType,
+    overwrite: argv.overwrite,
+    ci: argv.ci,
+  }).reduce((acc, [key, value]) => {
+    return `${acc ? `${acc}, ` : ''}${`${key}: ${chalk.white(value)}`}`;
+  }, '');
   console.log(
     chalk.magentaBright.bold(
       `${
         argv.capture ? 'Capturing' : 'Running'
-      } Visual Regression Tests (browser: ${chalk.white.bold(browserType)})...`,
+      } Visual Regression Tests (${paramString})...`,
     ),
   );
+  console.log('Launching browser...');
   const browser = await browsers[browserType].launch(); // Or 'firefox' or 'webkit'.
+  console.log('Launched browser.');
+
+  console.log('Creating page...');
+
   const page = await browser.newPage();
+  console.log('Created page.');
+
+  if (argv.verbose) {
+    page.on('console', (msg) => console.log(`console: ${msg.text()}`));
+  }
+
+  console.log('Loading page...');
   await page.goto(`http://localhost:${argv.port}/?automation=true`);
 
+  console.log('Loaded page.');
   const testCounters: Record<string, number> = {};
 
   if (!argv.capture) {
@@ -156,10 +209,15 @@ async function runTest(browserType: 'chromium') {
 
   await page.exposeFunction('snapshot', async (test: string) => {
     snapshotsTested++;
+    const snapshotSubDirectory = argv.ci ? `${browserType}-ci` : browserType;
     const snapshotIndex = (testCounters[test] = (testCounters[test] || 0) + 1);
     const makeFilename = (postfix?: string) =>
       `${test}-${snapshotIndex}${postfix ? `-${postfix}` : ''}.png`;
-    const snapshotPath = path.join(snapshotDir, browserType, makeFilename());
+    const snapshotPath = path.join(
+      snapshotDir,
+      snapshotSubDirectory,
+      makeFilename(),
+    );
     if (argv.capture) {
       process.stdout.write(
         chalk.gray(
@@ -199,7 +257,7 @@ async function runTest(browserType: 'chromium') {
               path.join(
                 './',
                 failedResultsDir,
-                `${browserType}-${makeFilename('diff')}`,
+                `${snapshotSubDirectory}-${makeFilename('diff')}`,
               ),
               result.resultImageBuffer,
             ),
@@ -207,7 +265,7 @@ async function runTest(browserType: 'chromium') {
               path.join(
                 './',
                 failedResultsDir,
-                `${browserType}-${makeFilename('actual')}`,
+                `${snapshotSubDirectory}-${makeFilename('actual')}`,
               ),
               actualPng,
             ),
@@ -215,7 +273,7 @@ async function runTest(browserType: 'chromium') {
               path.join(
                 './',
                 failedResultsDir,
-                `${browserType}-${makeFilename('expected')}`,
+                `${snapshotSubDirectory}-${makeFilename('expected')}`,
               ),
               expectedPng,
             ),
