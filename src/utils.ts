@@ -26,7 +26,7 @@ export function createWebGLContext(
     depth: false,
     stencil: true,
     desynchronized: false,
-    failIfMajorPerformanceCaveat: true,
+    // failIfMajorPerformanceCaveat: true,
     powerPreference: 'high-performance',
     premultipliedAlpha: true,
     preserveDrawingBuffer: false,
