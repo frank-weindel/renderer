@@ -35,19 +35,19 @@ interface LocalStorageData {
 }
 
 export async function automation(settings: ExampleSettings) {
-  const { canvas } = settings;
+  const { appElement } = settings;
   // Preserve and restore old background because this test manipulates it
-  const oldBackground = canvas.style.background;
+  const oldBackground = appElement.style.background;
   try {
     // Snapshot all the pages
     await (await test(settings)).snapshotPages();
   } finally {
-    canvas.style.background = oldBackground;
+    appElement.style.background = oldBackground;
   }
 }
 
 export default async function test(settings: ExampleSettings) {
-  const { testName, renderer, canvas, automation, testRoot } = settings;
+  const { testName, renderer, appElement, automation, testRoot } = settings;
   const savedState = automation
     ? null
     : loadStorage<LocalStorageData>(testName);
@@ -59,7 +59,7 @@ export default async function test(settings: ExampleSettings) {
 
   // Set the canvas background to 'red'
   // We will test WebGL -> Browser alpha over this background
-  canvas.style.background = leftSideBg === 'red' ? '#ff0000' : '#00ff00';
+  appElement.style.background = leftSideBg === 'red' ? '#ff0000' : '#00ff00';
 
   // Also create a node with a green background but only covering up
   // the right half of the canvas

@@ -102,7 +102,10 @@ async function runTest(
       ? module.customSettings(urlParams)
       : {};
 
-  const { renderer, canvas } = await initRenderer(driverName, customSettings);
+  const { renderer, appElement } = await initRenderer(
+    driverName,
+    customSettings,
+  );
 
   if (showOverlay) {
     const overlayText = renderer.createTextNode({
@@ -125,7 +128,7 @@ async function runTest(
     testName: test,
     renderer,
     driverName: driverName as 'main' | 'threadx',
-    canvas,
+    appElement,
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     testRoot: renderer.root!,
     automation: false,
@@ -168,15 +171,15 @@ async function initRenderer(
 
   await renderer.init();
 
-  const canvas = document.querySelector('#app>canvas');
+  const appElement = document.querySelector('#app');
 
-  assertTruthy(canvas instanceof HTMLCanvasElement);
+  assertTruthy(appElement instanceof HTMLDivElement);
 
-  return { renderer, canvas };
+  return { renderer, appElement };
 }
 
 async function runAutomation(driverName: string) {
-  const { renderer, canvas } = await initRenderer(driverName);
+  const { renderer, appElement } = await initRenderer(driverName);
 
   // Iterate through all test modules
   for (const testPath in testModules) {
@@ -200,7 +203,7 @@ async function runAutomation(driverName: string) {
           renderer,
           testRoot,
           driverName: driverName as 'main' | 'threadx',
-          canvas,
+          appElement,
           automation: true,
           snapshot: async () => {
             const snapshot = (window as any).snapshot as

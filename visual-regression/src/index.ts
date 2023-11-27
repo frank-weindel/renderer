@@ -95,10 +95,19 @@ const argv = yargs(hideBin(process.argv))
 
 (async () => {
   if (argv.docker) {
+    // Relay the command line arguments to the docker container
+    const commandLineStr = [
+      argv.capture ? '--capture' : '',
+      argv.overwrite ? '--overwrite' : '',
+      argv.verbose ? '--verbose' : '',
+      argv.skipBuild ? '--skipBuild' : '',
+      argv.port ? `--port ${argv.port}` : '',
+      '--ci', // Always run in CI mode in docker container
+    ].join(' ');
+
     // Get the directory of the current file
     const __dirname = path.dirname(new URL(import.meta.url).pathname);
     const rootDir = path.resolve(__dirname, '..', '..', '..');
-    console.log('rootDir', rootDir);
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
     const childProc = $({ stdio: 'inherit' })`docker run --network host \
       -v ${rootDir}:/work/ \
@@ -107,6 +116,7 @@ const argv = yargs(hideBin(process.argv))
       -v /work/examples/node_modules \
       -v /work/visual-regression/node_modules \
       -w /work/ -it visual-regression:latest \
+      /bin/bash -c ${`pnpm install && pnpm test:visual ${commandLineStr}`}
     `;
     await childProc;
   } else {
@@ -182,23 +192,16 @@ async function runTest(browserType: 'chromium') {
       } Visual Regression Tests (${paramString})...`,
     ),
   );
-  console.log('Launching browser...');
   const browser = await browsers[browserType].launch(); // Or 'firefox' or 'webkit'.
-  console.log('Launched browser.');
-
-  console.log('Creating page...');
 
   const page = await browser.newPage();
-  console.log('Created page.');
 
   if (argv.verbose) {
     page.on('console', (msg) => console.log(`console: ${msg.text()}`));
   }
 
-  console.log('Loading page...');
   await page.goto(`http://localhost:${argv.port}/?automation=true`);
 
-  console.log('Loaded page.');
   const testCounters: Record<string, number> = {};
 
   if (!argv.capture) {

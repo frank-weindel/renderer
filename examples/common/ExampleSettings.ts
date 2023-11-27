@@ -33,9 +33,9 @@ export interface ExampleSettings {
    */
   driverName: 'main' | 'threadx';
   /**
-   * The Renderer's canvas element.
+   * The HTML Element that the Renderer's canvas is a child of
    */
-  canvas: HTMLCanvasElement;
+  appElement: HTMLDivElement;
   /**
    * Renderer Node that all tests should use as their root node.
    *
