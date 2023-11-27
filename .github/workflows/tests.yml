@@ -2,7 +2,7 @@ on:
   - pull_request
 
 jobs:
-  cache-and-install:
+  run-all-tests:
     runs-on: ubuntu-latest
 
     steps:
@@ -36,8 +36,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Install Playwright Browser
-        run: cd visual-regression && pnpm exec playwright install
+      - name: Run Unit Tests
+        run: pnpm test
 
-      - name: Run tests
+      - name: Install Playwright Browser
+        run: cd visual-regression && pnpm exec playwright install chromium
+
+      - name: Run Visual Regression Tests
         run: pnpm run test:visual --ci --color
