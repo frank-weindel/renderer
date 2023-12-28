@@ -16,3 +16,4 @@
 packages:
   - "examples"
   - "visual-regression"
+  - "sdf-font-generator"

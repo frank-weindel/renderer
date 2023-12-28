@@ -1,0 +1,18 @@
+{
+  "Headstay-Regular": {
+    "msdf": {
+      "fontSize": 82
+    },
+    "ssdf": {
+      "fontSize": 82
+    }
+  },
+  "TedNext-Bold": {
+    "msdf": {
+      "distanceRange": 8
+    },
+    "ssdf": {
+      "distanceRange": 8
+    }
+  }
+}
